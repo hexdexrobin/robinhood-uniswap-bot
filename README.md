@@ -43,11 +43,29 @@ Uniswap est l’AMM public principal sur Robinhood Chain. Les tokens **pools.tra
 
 ---
 
+## Lancer sur Termux (Android)
+
+Guide complet : **[docs/TERMUX.md](./docs/TERMUX.md)**
+
+```bash
+pkg update -y && pkg install -y nodejs git nano
+cd ~ && git clone https://github.com/hexdexrobin/robinhood-uniswap-bot.git
+cd robinhood-uniswap-bot && npm install
+cp .env.example .env && nano .env   # remplir API key + PRIVATE_KEY
+# DRY_RUN=true pour tester sans vraie tx
+npm start -- balance
+npm start -- quote --in ETH --out 0xTOKEN --amount 0.0001 --amm-only
+npm start -- swap --in ETH --out 0xTOKEN --amount 0.0001 --amm-only --dry-run
+npm start -- watch-pnl --take-profit 100 --interval 10
+```
+
+---
+
 ## Prérequis
 
 1. **Clé API Uniswap** gratuite : [developers.uniswap.org/dashboard](https://developers.uniswap.org/dashboard)
 2. **Wallet** avec un peu d’**ETH** sur Robinhood Chain (gas + montant à swapper)
-3. **Node.js ≥ 18**
+3. **Node.js ≥ 18** (PC, VPS, ou **Termux**)
 
 > ⚠️ Ne jamais committer `.env` ni exposer `PRIVATE_KEY`.
 
