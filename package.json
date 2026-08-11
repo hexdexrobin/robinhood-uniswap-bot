@@ -1,0 +1,42 @@
+{
+  "name": "robinhood-uniswap-bot",
+  "version": "1.0.0",
+  "description": "Bot de swap de tokens sur Robinhood Chain via Uniswap Trading API (pools.trade / Uniswap v4)",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "rh-swap": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "tsx src/index.ts",
+    "dev": "tsx src/index.ts",
+    "quote": "tsx src/index.ts quote",
+    "swap": "tsx src/index.ts swap",
+    "balance": "tsx src/index.ts balance",
+    "positions": "tsx src/index.ts positions",
+    "pnl": "tsx src/index.ts pnl",
+    "watch-pnl": "tsx src/index.ts watch-pnl"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "uniswap",
+    "robinhood-chain",
+    "swap",
+    "bot",
+    "pools.trade",
+    "defi"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "ethers": "^6.13.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}

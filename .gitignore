@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.evn
+*.log
+.DS_Store
+data/
+*.pem
+.secrets/
+
