@@ -379,6 +379,12 @@ export async function executeSwap(
       `  Explorer: https://robinhoodchain.blockscout.com/tx/${sent.hash}`
     );
     const receipt = await sent.wait();
+    // status 0 = on-chain revert (still "mined") — treat as failure for TP/SL retries
+    if (receipt && Number(receipt.status) === 0) {
+      throw new Error(
+        `Transaction reverted on-chain (status=0) tx=${sent.hash} block=${receipt.blockNumber}`
+      );
+    }
     console.log(`  Confirmé dans le block ${receipt?.blockNumber}`);
     return {
       routing,

@@ -357,20 +357,57 @@ export async function watchPnlLoop(
         !snap.error && (snap.hitTakeProfit || snap.hitStopLoss);
       if (shouldSell) {
         selling.add(key);
-        try {
-          await takeProfitSell(config, provider, wallet, snap, {
-            dryRun: opts.dryRun,
-            slippage: opts.slippage,
-            reason: snap.hitStopLoss ? "sl" : "tp",
-          });
-        } catch (e) {
-          console.error(
-            `  ✗ Échec vente auto ${pos.symbol}:`,
-            e instanceof Error ? e.message : e
-          );
-        } finally {
-          selling.delete(key);
+        const reason = snap.hitStopLoss ? "sl" : "tp";
+        // Retry sells: memecoin quotes go stale / first tx can revert
+        const slipBase =
+          opts.slippage ?? Math.max(config.slippageTolerance, reason === "sl" ? 8 : 5);
+        let sold = false;
+        for (let attempt = 1; attempt <= 3 && !sold; attempt++) {
+          const slip = slipBase + (attempt - 1) * 3; // 5,8,11 or 8,11,14
+          try {
+            console.log(
+              `  → vente ${reason.toUpperCase()} tentative ${attempt}/3 (slippage ${slip}%)`
+            );
+            // Refresh snapshot each retry (price moves fast)
+            const snap2 =
+              attempt === 1
+                ? snap
+                : await computePnl(
+                    config,
+                    provider,
+                    swapper,
+                    pos,
+                    opts.takeProfitPct,
+                    stopLossPct
+                  );
+            if (snap2.balanceRaw === 0n) {
+              sold = true;
+              break;
+            }
+            const result = await takeProfitSell(config, provider, wallet, snap2, {
+              dryRun: opts.dryRun,
+              slippage: slip,
+              reason,
+            });
+            if (result.txHash || result.closed) {
+              sold = true;
+            }
+          } catch (e) {
+            console.error(
+              `  ✗ Échec vente auto ${pos.symbol} #${attempt}:`,
+              e instanceof Error ? e.message : e
+            );
+            if (attempt < 3) {
+              await new Promise((r) => setTimeout(r, 2000 * attempt));
+            }
+          }
         }
+        if (!sold) {
+          console.error(
+            `  ✗ Abandon vente ${pos.symbol} après 3 essais — re-check next tick`
+          );
+        }
+        selling.delete(key);
       }
     }
   };
