@@ -24,6 +24,12 @@ export interface Position {
   status: PositionStatus;
   /** Seuil de take-profit en % de PnL (100 = x2) */
   takeProfitPct: number;
+  /**
+   * Seuil de stop-loss en % de perte (positif).
+   * Ex: 40 → vend si PnL ≤ -40%.
+   * 0 ou undefined = désactivé.
+   */
+  stopLossPct?: number;
   closedAt?: string;
   exitTxHash?: string;
   exitEth?: string;
@@ -76,6 +82,7 @@ export function recordBuy(params: {
   tokenAmountRaw: string;
   entryTxHash?: string;
   takeProfitPct?: number;
+  stopLossPct?: number;
 }): Position {
   const store = loadPositions();
   const token = norm(params.token);
@@ -99,6 +106,9 @@ export function recordBuy(params: {
     if (params.takeProfitPct !== undefined) {
       existing.takeProfitPct = params.takeProfitPct;
     }
+    if (params.stopLossPct !== undefined) {
+      existing.stopLossPct = params.stopLossPct;
+    }
     existing.notes = `Averaged at ${new Date().toISOString()}`;
     savePositions(store);
     return existing;
@@ -116,6 +126,7 @@ export function recordBuy(params: {
     openedAt: new Date().toISOString(),
     status: "open",
     takeProfitPct: params.takeProfitPct ?? 100,
+    stopLossPct: params.stopLossPct ?? 0,
   };
   store.positions.push(pos);
   savePositions(store);

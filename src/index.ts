@@ -59,6 +59,7 @@ Options swap / quote:
   --amm-only           Forcer V2/V3/V4
   --dry-run            Pas de broadcast
   --take-profit <n>    % PnL pour vente auto (défaut: 100 = x2)
+  --stop-loss <n>      % perte max (ex: 40 = vend si -40%). 0 = off
   --no-track           Ne pas enregistrer la position après achat
   --interval <sec>     Intervalle watch (défaut: 10)
   --token <0x…>        Filtrer une position / balance
@@ -209,6 +210,9 @@ async function main(): Promise<void> {
     const takeProfitPct = Number(
       flagStr(flags, "take-profit", process.env.TAKE_PROFIT_PCT ?? "100")
     );
+    const stopLossPct = Number(
+      flagStr(flags, "stop-loss", process.env.STOP_LOSS_PCT ?? "0")
+    );
     const intervalSec = Number(
       flagStr(flags, "interval", process.env.PNL_POLL_INTERVAL ?? "10")
     );
@@ -232,9 +236,11 @@ async function main(): Promise<void> {
             tokenAmount: bal.formatted,
             tokenAmountRaw: bal.raw.toString(),
             takeProfitPct,
+            stopLossPct,
           });
           console.log(
-            `Position importée: ${pos.symbol} cost=${cost} ETH TP=+${takeProfitPct}%`
+            `Position importée: ${pos.symbol} cost=${cost} ETH TP=+${takeProfitPct}%` +
+              (stopLossPct > 0 ? ` SL=-${stopLossPct}%` : "")
           );
         }
       }
@@ -243,6 +249,7 @@ async function main(): Promise<void> {
     await watchPnlLoop(config, provider, wallet, {
       intervalSec,
       takeProfitPct,
+      stopLossPct,
       tokenFilter,
       dryRun,
       slippage: slippage ? Number(slippage) : undefined,
@@ -320,6 +327,9 @@ async function main(): Promise<void> {
     const takeProfitPct = Number(
       flagStr(flags, "take-profit", process.env.TAKE_PROFIT_PCT ?? "100")
     );
+    const stopLossPct = Number(
+      flagStr(flags, "stop-loss", process.env.STOP_LOSS_PCT ?? "0")
+    );
     const autoWatch = Boolean(flags["auto-watch"]);
 
     const network = await provider.getNetwork();
@@ -372,13 +382,17 @@ async function main(): Promise<void> {
             tokenAmountRaw: received.toString(),
             entryTxHash: result.txHash,
             takeProfitPct,
+            stopLossPct,
           });
           console.log(
             `\n📊 Position ouverte: ${pos.symbol} | cost=${pos.costEth} ETH | ` +
-              `tokens=${pos.tokenAmount} | take-profit=+${pos.takeProfitPct}%`
+              `tokens=${pos.tokenAmount} | TP=+${pos.takeProfitPct}%` +
+              (stopLossPct > 0 ? ` | SL=-${stopLossPct}%` : "")
           );
           console.log(
-            `   Lance: npm start -- watch-pnl --take-profit ${takeProfitPct} --interval 10`
+            `   Lance: npm start -- watch-pnl --take-profit ${takeProfitPct}` +
+              (stopLossPct > 0 ? ` --stop-loss ${stopLossPct}` : "") +
+              ` --interval 10`
           );
         }
       }
@@ -411,6 +425,7 @@ async function main(): Promise<void> {
         await watchPnlLoop(config, provider, wallet, {
           intervalSec,
           takeProfitPct,
+          stopLossPct,
           tokenFilter: tokenOut,
           dryRun: false,
           slippage: slippage ? Number(slippage) : undefined,

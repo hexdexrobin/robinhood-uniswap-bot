@@ -126,6 +126,7 @@ npm start -- watch-pnl --token 0xTOKEN --cost 0.0007 --take-profit 100 --interva
 `.env` :
 ```env
 TAKE_PROFIT_PCT=100
+STOP_LOSS_PCT=40
 PNL_POLL_INTERVAL=10
 ```
 

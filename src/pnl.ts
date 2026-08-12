@@ -22,6 +22,9 @@ export interface PnlSnapshot {
   pnlPct: number;
   hitTakeProfit: boolean;
   takeProfitPct: number;
+  /** true si PnL ≤ -stopLossPct */
+  hitStopLoss: boolean;
+  stopLossPct: number;
   error?: string;
 }
 
@@ -45,9 +48,15 @@ export async function computePnl(
   provider: JsonRpcProvider,
   swapper: string,
   position: Position,
-  takeProfitOverride?: number
+  takeProfitOverride?: number,
+  stopLossOverride?: number
 ): Promise<PnlSnapshot> {
   const takeProfitPct = takeProfitOverride ?? position.takeProfitPct ?? 100;
+  const stopLossPct =
+    stopLossOverride ??
+    position.stopLossPct ??
+    Number(process.env.STOP_LOSS_PCT ?? "0") ??
+    0;
   const bal = await getBalance(provider, swapper, position.token);
 
   if (bal.raw === 0n) {
@@ -62,6 +71,8 @@ export async function computePnl(
       pnlPct: -100,
       hitTakeProfit: false,
       takeProfitPct,
+      hitStopLoss: stopLossPct > 0,
+      stopLossPct,
       error: "Balance token = 0 (déjà vendu ?)",
     };
   }
@@ -92,6 +103,8 @@ export async function computePnl(
       pnlPct,
       hitTakeProfit: pnlPct >= takeProfitPct,
       takeProfitPct,
+      hitStopLoss: stopLossPct > 0 && pnlPct <= -Math.abs(stopLossPct),
+      stopLossPct: Math.abs(stopLossPct),
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -106,6 +119,8 @@ export async function computePnl(
       pnlPct: 0,
       hitTakeProfit: false,
       takeProfitPct,
+      hitStopLoss: false,
+      stopLossPct: Math.abs(stopLossPct),
       error: msg,
     };
   }
@@ -117,11 +132,17 @@ export function formatPnlLine(s: PnlSnapshot): string {
     return `⚠ ${sym}: ${s.error}`;
   }
   const sign = s.pnlPct >= 0 ? "+" : "";
-  const flag = s.hitTakeProfit ? " 🎯 TAKE-PROFIT" : "";
+  const flag = s.hitTakeProfit
+    ? " 🎯 TAKE-PROFIT"
+    : s.hitStopLoss
+      ? " 🛑 STOP-LOSS"
+      : "";
+  const sl =
+    s.stopLossPct > 0 ? ` | SL=-${s.stopLossPct}%` : "";
   return (
     `${sym} | bal=${s.balanceHuman} | cost=${s.costEth.toFixed(6)} ETH | ` +
     `now=${s.valueEth.toFixed(6)} ETH | PnL=${sign}${s.pnlPct.toFixed(2)}% ` +
-    `(${sign}${s.pnlEth.toFixed(6)} ETH) | TP=${s.takeProfitPct}%${flag}`
+    `(${sign}${s.pnlEth.toFixed(6)} ETH) | TP=+${s.takeProfitPct}%${sl}${flag}`
   );
 }
 
@@ -199,22 +220,30 @@ export async function sellAllForPosition(
 /**
  * Vend tout avec valeur de sortie connue (calculée au tick PnL).
  */
+/**
+ * Vend 100% de la position (take-profit ou stop-loss).
+ */
 export async function takeProfitSell(
   config: BotConfig,
   provider: JsonRpcProvider,
   wallet: Wallet,
   snapshot: PnlSnapshot,
-  opts?: { dryRun?: boolean; slippage?: number }
+  opts?: { dryRun?: boolean; slippage?: number; reason?: "tp" | "sl" }
 ): Promise<{ txHash?: string; closed: Position | null }> {
   const pos = snapshot.position;
   const bal = snapshot.balanceHuman;
+  const reason = opts?.reason ?? (snapshot.hitStopLoss ? "sl" : "tp");
 
   if (snapshot.balanceRaw === 0n) {
     return { closed: closePosition({ token: pos.token, exitEth: "0" }) };
   }
 
   console.log("\n════════════════════════════════════════");
-  console.log(`🎯 TAKE-PROFIT ATTEINT (+${snapshot.pnlPct.toFixed(2)}%)`);
+  if (reason === "sl") {
+    console.log(`🛑 STOP-LOSS ATTEINT (${snapshot.pnlPct.toFixed(2)}%)`);
+  } else {
+    console.log(`🎯 TAKE-PROFIT ATTEINT (+${snapshot.pnlPct.toFixed(2)}%)`);
+  }
   console.log(`   ${pos.symbol} ${bal} → ETH`);
   console.log(
     `   cost=${snapshot.costEth.toFixed(6)} ETH → value=${snapshot.valueEth.toFixed(6)} ETH`
@@ -227,7 +256,10 @@ export async function takeProfitSell(
     amountHuman: bal,
     ammOnly: true,
     dryRun: opts?.dryRun ?? false,
-    slippage: opts?.slippage ?? Math.max(config.slippageTolerance, 5),
+    // SL: slippage un peu plus large pour sortir vite
+    slippage:
+      opts?.slippage ??
+      Math.max(config.slippageTolerance, reason === "sl" ? 8 : 5),
   });
 
   if (result.dryRun || !result.txHash) {
@@ -240,8 +272,10 @@ export async function takeProfitSell(
     exitTxHash: result.txHash,
   });
 
+  const sign = snapshot.pnlPct >= 0 ? "+" : "";
   console.log(
-    `✅ Position clôturée | PnL réalisé ≈ +${snapshot.pnlPct.toFixed(2)}% ` +
+    `✅ Position clôturée (${reason === "sl" ? "STOP-LOSS" : "TAKE-PROFIT"}) | ` +
+      `PnL ≈ ${sign}${snapshot.pnlPct.toFixed(2)}% ` +
       `(~${snapshot.pnlEth.toFixed(6)} ETH) | tx=${result.txHash}`
   );
 
@@ -251,6 +285,8 @@ export async function takeProfitSell(
 export interface WatchPnlOptions {
   intervalSec: number;
   takeProfitPct: number;
+  /** Perte max en % (positif). 0 = désactivé */
+  stopLossPct?: number;
   tokenFilter?: string;
   dryRun?: boolean;
   slippage?: number;
@@ -259,7 +295,7 @@ export interface WatchPnlOptions {
 }
 
 /**
- * Boucle de monitoring PnL + vente auto au take-profit.
+ * Boucle de monitoring PnL + vente auto take-profit / stop-loss.
  */
 export async function watchPnlLoop(
   config: BotConfig,
@@ -270,12 +306,19 @@ export async function watchPnlLoop(
   const swapper = await wallet.getAddress();
   let tick = 0;
   const selling = new Set<string>();
+  const stopLossPct =
+    opts.stopLossPct ?? Number(process.env.STOP_LOSS_PCT ?? "0");
 
   console.log("╔══════════════════════════════════════════════════╗");
-  console.log("║  WATCH PnL — vente auto au take-profit           ║");
+  console.log("║  WATCH PnL — take-profit + stop-loss             ║");
   console.log("╚══════════════════════════════════════════════════╝");
   console.log(`Wallet       : ${swapper}`);
   console.log(`Take-profit  : +${opts.takeProfitPct}% (100% = x2)`);
+  console.log(
+    `Stop-loss    : ${
+      stopLossPct > 0 ? `-${Math.abs(stopLossPct)}%` : "désactivé"
+    }`
+  );
   console.log(`Intervalle   : ${opts.intervalSec}s`);
   console.log(`Dry-run      : ${opts.dryRun ?? false}`);
   console.log(`Filtre token : ${opts.tokenFilter ?? "toutes positions open"}`);
@@ -305,16 +348,20 @@ export async function watchPnlLoop(
         provider,
         swapper,
         pos,
-        opts.takeProfitPct
+        opts.takeProfitPct,
+        stopLossPct
       );
       console.log(`  ${formatPnlLine(snap)}`);
 
-      if (snap.hitTakeProfit && !snap.error) {
+      const shouldSell =
+        !snap.error && (snap.hitTakeProfit || snap.hitStopLoss);
+      if (shouldSell) {
         selling.add(key);
         try {
           await takeProfitSell(config, provider, wallet, snap, {
             dryRun: opts.dryRun,
             slippage: opts.slippage,
+            reason: snap.hitStopLoss ? "sl" : "tp",
           });
         } catch (e) {
           console.error(
